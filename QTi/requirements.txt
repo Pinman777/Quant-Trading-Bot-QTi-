@@ -28,7 +28,7 @@ ccxt==4.2.15
 # Утилиты
 websockets==12.0
 rclone-python==0.1.0
-python-dateutil==2.8.2
+python-dateutil==2.9.0.post0
 
 # Тестирование
 pytest==8.0.0
