@@ -141,4 +141,100 @@ class WebSocketManager:
             "type": "remote_status",
             "name": server_name,
             "status": status
-        }) 
+        })
+
+# Создаем глобальный менеджер соединений
+manager = WebSocketManager()
+
+async def handle_websocket_connection(
+    websocket: WebSocket,
+    user_id: int,
+    db: Session
+):
+    """
+    Обрабатывает WebSocket соединение.
+    """
+    await manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                message = json.loads(data)
+                message_type = message.get('type')
+                
+                if message_type == 'subscribe_exchange':
+                    exchange_id = message.get('exchange_id')
+                    if exchange_id:
+                        manager.subscribe_to_exchange(websocket, exchange_id)
+                        await websocket.send_text(json.dumps({
+                            'type': 'subscription_confirmed',
+                            'subscription_type': 'exchange',
+                            'exchange_id': exchange_id
+                        }))
+                
+                elif message_type == 'unsubscribe_exchange':
+                    exchange_id = message.get('exchange_id')
+                    if exchange_id:
+                        manager.unsubscribe_from_exchange(websocket, exchange_id)
+                        await websocket.send_text(json.dumps({
+                            'type': 'unsubscription_confirmed',
+                            'subscription_type': 'exchange',
+                            'exchange_id': exchange_id
+                        }))
+                
+                elif message_type == 'subscribe_strategy':
+                    strategy_id = message.get('strategy_id')
+                    if strategy_id:
+                        manager.subscribe_to_strategy(websocket, strategy_id)
+                        await websocket.send_text(json.dumps({
+                            'type': 'subscription_confirmed',
+                            'subscription_type': 'strategy',
+                            'strategy_id': strategy_id
+                        }))
+                
+                elif message_type == 'unsubscribe_strategy':
+                    strategy_id = message.get('strategy_id')
+                    if strategy_id:
+                        manager.unsubscribe_from_strategy(websocket, strategy_id)
+                        await websocket.send_text(json.dumps({
+                            'type': 'unsubscription_confirmed',
+                            'subscription_type': 'strategy',
+                            'strategy_id': strategy_id
+                        }))
+                
+                else:
+                    await websocket.send_text(json.dumps({
+                        'type': 'error',
+                        'message': 'Unknown message type'
+                    }))
+            
+            except json.JSONDecodeError:
+                await websocket.send_text(json.dumps({
+                    'type': 'error',
+                    'message': 'Invalid JSON format'
+                }))
+    
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+async def broadcast_trade_update(trade_data: Dict):
+    """
+    Отправляет обновление о сделке всем подписанным клиентам.
+    """
+    message = json.dumps({
+        'type': 'trade_update',
+        'data': trade_data,
+        'timestamp': datetime.utcnow().isoformat()
+    })
+    await manager.broadcast(message)
+
+async def broadcast_system_update(update_data: Dict):
+    """
+    Отправляет системное обновление всем подключенным клиентам.
+    """
+    message = json.dumps({
+        'type': 'system_update',
+        'data': update_data,
+        'timestamp': datetime.utcnow().isoformat()
+    })
+    await manager.broadcast(message) 

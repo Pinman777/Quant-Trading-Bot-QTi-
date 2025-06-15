@@ -1,8 +1,12 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import pandas as pd
 import numpy as np
 import talib
+from sqlalchemy.orm import Session
+
+from ..crud import strategy as crud_strategy
+from ..schemas.strategy import StrategyCreate, StrategyUpdate
 
 class Strategy(ABC):
     def __init__(self, parameters: Dict[str, Any]):
@@ -233,3 +237,199 @@ class Strategy(ABC):
             if param not in self.parameters:
                 return False
         return True 
+
+def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Рассчитывает технические индикаторы для стратегии.
+    """
+    # SMA
+    df['SMA_20'] = df['close'].rolling(window=20).mean()
+    df['SMA_50'] = df['close'].rolling(window=50).mean()
+    
+    # EMA
+    df['EMA_20'] = df['close'].ewm(span=20, adjust=False).mean()
+    df['EMA_50'] = df['close'].ewm(span=50, adjust=False).mean()
+    
+    # RSI
+    delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    
+    # MACD
+    exp1 = df['close'].ewm(span=12, adjust=False).mean()
+    exp2 = df['close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = exp1 - exp2
+    df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    
+    # Bollinger Bands
+    df['BB_Middle'] = df['close'].rolling(window=20).mean()
+    df['BB_Upper'] = df['BB_Middle'] + 2 * df['close'].rolling(window=20).std()
+    df['BB_Lower'] = df['BB_Middle'] - 2 * df['close'].rolling(window=20).std()
+    
+    return df
+
+def generate_signals(df: pd.DataFrame, strategy_params: Dict) -> pd.DataFrame:
+    """
+    Генерирует торговые сигналы на основе технических индикаторов.
+    """
+    df['signal'] = 0
+    
+    # Пример простой стратегии пересечения SMA
+    if strategy_params.get('use_sma_crossover', False):
+        df['signal'] = np.where(
+            df['SMA_20'] > df['SMA_50'],
+            1,  # Покупка
+            np.where(
+                df['SMA_20'] < df['SMA_50'],
+                -1,  # Продажа
+                0  # Нет сигнала
+            )
+        )
+    
+    # Пример стратегии RSI
+    if strategy_params.get('use_rsi', False):
+        rsi_oversold = strategy_params.get('rsi_oversold', 30)
+        rsi_overbought = strategy_params.get('rsi_overbought', 70)
+        
+        df['signal'] = np.where(
+            df['RSI'] < rsi_oversold,
+            1,  # Покупка
+            np.where(
+                df['RSI'] > rsi_overbought,
+                -1,  # Продажа
+                df['signal']  # Сохраняем предыдущий сигнал
+            )
+        )
+    
+    # Пример стратегии MACD
+    if strategy_params.get('use_macd', False):
+        df['signal'] = np.where(
+            (df['MACD'] > df['Signal_Line']) & (df['MACD'].shift(1) <= df['Signal_Line'].shift(1)),
+            1,  # Покупка
+            np.where(
+                (df['MACD'] < df['Signal_Line']) & (df['MACD'].shift(1) >= df['Signal_Line'].shift(1)),
+                -1,  # Продажа
+                df['signal']  # Сохраняем предыдущий сигнал
+            )
+        )
+    
+    # Пример стратегии Bollinger Bands
+    if strategy_params.get('use_bollinger', False):
+        df['signal'] = np.where(
+            df['close'] < df['BB_Lower'],
+            1,  # Покупка
+            np.where(
+                df['close'] > df['BB_Upper'],
+                -1,  # Продажа
+                df['signal']  # Сохраняем предыдущий сигнал
+            )
+        )
+    
+    return df
+
+def calculate_performance_metrics(df: pd.DataFrame) -> Dict:
+    """
+    Рассчитывает метрики производительности стратегии.
+    """
+    # Рассчитываем доходность
+    df['returns'] = df['close'].pct_change()
+    df['strategy_returns'] = df['signal'].shift(1) * df['returns']
+    
+    # Общая доходность
+    total_return = (1 + df['strategy_returns']).prod() - 1
+    
+    # Годовая доходность
+    annual_return = (1 + total_return) ** (252 / len(df)) - 1
+    
+    # Волатильность
+    volatility = df['strategy_returns'].std() * np.sqrt(252)
+    
+    # Коэффициент Шарпа
+    risk_free_rate = 0.02  # Предполагаемая безрисковая ставка
+    sharpe_ratio = (annual_return - risk_free_rate) / volatility
+    
+    # Максимальная просадка
+    cumulative_returns = (1 + df['strategy_returns']).cumprod()
+    rolling_max = cumulative_returns.expanding().max()
+    drawdowns = cumulative_returns / rolling_max - 1
+    max_drawdown = drawdowns.min()
+    
+    # Количество сделок
+    trades = df['signal'].diff().abs().sum() / 2
+    
+    # Процент выигрышных сделок
+    winning_trades = df[df['strategy_returns'] > 0]['strategy_returns'].count()
+    win_rate = winning_trades / trades if trades > 0 else 0
+    
+    return {
+        'total_return': total_return,
+        'annual_return': annual_return,
+        'volatility': volatility,
+        'sharpe_ratio': sharpe_ratio,
+        'max_drawdown': max_drawdown,
+        'trades': trades,
+        'win_rate': win_rate
+    }
+
+def backtest_strategy(
+    df: pd.DataFrame,
+    strategy_params: Dict,
+    initial_capital: float = 10000.0
+) -> Dict:
+    """
+    Выполняет бэктестинг стратегии.
+    """
+    # Рассчитываем индикаторы
+    df = calculate_technical_indicators(df)
+    
+    # Генерируем сигналы
+    df = generate_signals(df, strategy_params)
+    
+    # Рассчитываем позиции
+    df['position'] = df['signal'].cumsum()
+    
+    # Рассчитываем капитал
+    df['capital'] = initial_capital * (1 + df['strategy_returns']).cumprod()
+    
+    # Рассчитываем метрики
+    metrics = calculate_performance_metrics(df)
+    
+    return {
+        'metrics': metrics,
+        'equity_curve': df['capital'].tolist(),
+        'positions': df['position'].tolist(),
+        'signals': df['signal'].tolist()
+    }
+
+def optimize_strategy_parameters(
+    df: pd.DataFrame,
+    param_grid: Dict,
+    metric: str = 'sharpe_ratio'
+) -> Dict:
+    """
+    Оптимизирует параметры стратегии.
+    """
+    best_params = {}
+    best_score = float('-inf')
+    
+    # Генерируем все комбинации параметров
+    param_combinations = [dict(zip(param_grid.keys(), v)) for v in np.array(np.meshgrid(*param_grid.values())).T.reshape(-1, len(param_grid))]
+    
+    for params in param_combinations:
+        # Выполняем бэктест
+        results = backtest_strategy(df, params)
+        
+        # Получаем метрику
+        score = results['metrics'][metric]
+        
+        # Обновляем лучшие параметры
+        if score > best_score:
+            best_score = score
+            best_params = params
+    
+    return {
+        'best_params': best_params,
+        'best_score': best_score
+    } 

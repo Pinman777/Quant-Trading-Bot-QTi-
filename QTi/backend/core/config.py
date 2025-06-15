@@ -1,9 +1,10 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Union
 import configparser
 from pathlib import Path
 import json
 import logging
-from pydantic_settings import BaseSettings
+from pydantic import AnyHttpUrl, BaseSettings, PostgresDsn, validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
 from dotenv import load_dotenv
 
@@ -12,39 +13,91 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=True)
+
     # Основные настройки
-    PROJECT_NAME: str = "Quant Trading Bot (QTi)"
-    VERSION: str = "1.0.0"
+    APP_NAME: str = "QTi"
+    APP_ENV: str = "development"
+    DEBUG: bool = True
+    SECRET_KEY: str
     API_V1_STR: str = "/api/v1"
-    
-    # Настройки безопасности
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-here")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 дней
-    
+
+    # Настройки CORS
+    CORS_ORIGINS: List[AnyHttpUrl] = []
+
+    @validator("CORS_ORIGINS", pre=True)
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
+        if isinstance(v, str) and not v.startswith("["):
+            return [i.strip() for i in v.split(",")]
+        elif isinstance(v, (list, str)):
+            return v
+        raise ValueError(v)
+
+    CORS_CREDENTIALS: bool = True
+    CORS_METHODS: List[str] = ["*"]
+    CORS_HEADERS: List[str] = ["*"]
+
     # Настройки базы данных
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./qti.db")
-    
-    # Настройки CoinMarketCap
-    CMC_API_KEY: Optional[str] = os.getenv("CMC_API_KEY")
-    CMC_API_URL: str = "https://pro-api.coinmarketcap.com/v1"
-    CMC_CACHE_EXPIRE: int = 300  # 5 минут
-    
-    # Настройки Redis для кэширования
-    REDIS_URL: Optional[str] = os.getenv("REDIS_URL")
-    
+    DATABASE_URL: str
+    DATABASE_TEST_URL: Optional[str] = None
+
+    # Настройки Redis
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    REDIS_PASSWORD: Optional[str] = None
+
+    # Настройки JWT
+    JWT_SECRET_KEY: str
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
     # Настройки бирж
-    SUPPORTED_EXCHANGES: list = ["binance", "bybit", "okx"]
-    
-    # Настройки бэктестинга
-    BACKTEST_MAX_WORKERS: int = 4
-    BACKTEST_TIMEOUT: int = 3600  # 1 час
-    
+    BINANCE_API_KEY: Optional[str] = None
+    BINANCE_API_SECRET: Optional[str] = None
+
     # Настройки логирования
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    
+    LOG_FILE: str = "logs/qti.log"
+
+    # Настройки мониторинга
+    ENABLE_METRICS: bool = True
+    METRICS_PORT: int = 9090
+
+    # Настройки кэширования
+    CACHE_TYPE: str = "redis"
+    CACHE_REDIS_HOST: str = "localhost"
+    CACHE_REDIS_PORT: int = 6379
+    CACHE_REDIS_DB: int = 1
+    CACHE_DEFAULT_TIMEOUT: int = 300
+
+    # Настройки безопасности
+    RATE_LIMIT_REQUESTS: int = 100
+    RATE_LIMIT_PERIOD: int = 60
+    ENABLE_2FA: bool = False
+
+    # Настройки уведомлений
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: Optional[int] = None
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    ENABLE_EMAIL_NOTIFICATIONS: bool = False
+
+    # Настройки бэкапов
+    BACKUP_DIR: str = "backups"
+    BACKUP_RETENTION_DAYS: int = 7
+    ENABLE_AUTO_BACKUP: bool = False
+
+    # Настройки тестирования
+    TEST_MODE: bool = False
+    TEST_USER_EMAIL: str = "test@example.com"
+    TEST_USER_PASSWORD: str = "testpassword"
+
     class Config:
         case_sensitive = True
+        env_file = ".env"
 
 settings = Settings()
 

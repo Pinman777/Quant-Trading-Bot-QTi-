@@ -2,20 +2,66 @@
 debug = false
 log_level = INFO
 theme = dark
+app_name = QTi
+app_env = development
+api_v1_str = /api/v1
 
 [api]
 host = 0.0.0.0
 port = 8000
 secret_key = your-secret-key-here
 token_expire_minutes = 1440
+refresh_token_expire_days = 7
+jwt_algorithm = HS256
 
 [database]
 path = data/qti.db
 backup_path = data/backups
+test_path = data/test.db
+backup_retention_days = 7
+enable_auto_backup = false
 
-[coinmarketcap]
-api_key = your-api-key-here
+[redis]
+host = localhost
+port = 6379
+db = 0
+password = 
 cache_timeout = 300
+
+[security]
+rate_limit_requests = 100
+rate_limit_period = 60
+enable_2fa = false
+cors_origins = ["http://localhost:3000", "http://localhost:8000"]
+cors_credentials = true
+cors_methods = ["*"]
+cors_headers = ["*"]
+
+[exchanges]
+binance_api_key = your-binance-api-key
+binance_api_secret = your-binance-api-secret
+coinmarketcap_api_key = your-api-key-here
+cache_timeout = 300
+
+[logging]
+log_level = INFO
+log_format = %(asctime)s - %(name)s - %(levelname)s - %(message)s
+log_file = logs/qti.log
+enable_file_logging = true
+enable_console_logging = true
+
+[monitoring]
+enable_metrics = true
+metrics_port = 9090
+enable_health_checks = true
+health_check_interval = 60
+
+[notifications]
+smtp_host = smtp.gmail.com
+smtp_port = 587
+smtp_user = your-email@gmail.com
+smtp_password = your-app-password
+enable_email_notifications = false
 
 [rclone]
 config_path = ~/.config/rclone/rclone.conf
@@ -28,4 +74,13 @@ rust_path = ./qti-bot/passivbot_rust
 
 [websocket]
 host = 0.0.0.0
-port = 8001 
+port = 8001
+enable_ssl = false
+ssl_cert = 
+ssl_key = 
+
+[testing]
+test_mode = false
+test_user_email = test@example.com
+test_user_password = testpassword
+enable_test_data = false 

@@ -11,6 +11,9 @@ from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 import os
 from dotenv import load_dotenv
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException
 
 from routers import bots, backtest, optimize, settings, auth, servers, market
 from database import engine, Base
@@ -20,6 +23,10 @@ from models.bot import BotStatus
 from api.routes import remote_sync
 from api import alerts, exchanges, bots, market, backtest, optimizer, config, monitor, websocket, remote
 from logger import server_logger, api_logger, websocket_logger, log_extra
+from .core.config import settings
+from .core.logger import logger
+from .core.database import init_db
+from .api.v1.api import api_router
 
 # Load environment variables
 load_dotenv()
@@ -37,12 +44,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
-    title="QTi API",
-    description="API для Quant Trading Bot (QTi)",
-    version="1.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json"
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    description="QTi - Торговый бот для криптовалютных бирж",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
 )
 
 # Настройка CORS
@@ -218,12 +225,14 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/")
 async def root():
-    """Корневой эндпоинт"""
-    server_logger.info(
-        "Root endpoint accessed",
-        extra=log_extra({"endpoint": "/"})
-    )
-    return {"message": "Welcome to QTi API"}
+    """
+    Корневой эндпоинт для проверки работоспособности.
+    """
+    return {
+        "app": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "status": "running"
+    }
 
 @app.get("/health")
 async def health_check():
@@ -316,20 +325,63 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
     )
     return current_user
 
-# Здесь будут добавлены роуты для:
-# - Управления ботами
-# - Бэктестинга
-# - Оптимизации
-# - Мониторинга
-# - Управления конфигурациями
-# - Интеграции с CoinMarketCap
+# Обработка ошибок
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    logger.error(f"Validation error: {exc}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": str(exc)},
+    )
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    logger.error(f"HTTP error: {exc}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    logger.error(f"Unexpected error: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Действия при запуске приложения.
+    """
+    logger.info("Starting up QTi application...")
+    try:
+        # Инициализация базы данных
+        init_db()
+        logger.info("Database initialized successfully")
+        
+        # Дополнительные действия при запуске
+        # ...
+        
+        logger.info("QTi application started successfully")
+    except Exception as e:
+        logger.error(f"Error during startup: {e}")
+        raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """
+    Действия при остановке приложения.
+    """
+    logger.info("Shutting down QTi application...")
+    # Действия при остановке
+    # ...
 
 if __name__ == "__main__":
-    server_logger.info(
-        "Starting QTi API server",
-        extra=log_extra({
-            "host": "127.0.0.1",
-            "port": 8000
-        })
-    )
-    uvicorn.run(app, host="127.0.0.1", port=8000) 
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=settings.DEBUG
+    ) 
