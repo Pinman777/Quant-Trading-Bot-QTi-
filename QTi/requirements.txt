@@ -1,0 +1,40 @@
+# FastAPI и зависимости
+fastapi==0.109.2
+uvicorn==0.27.1
+python-multipart==0.0.9
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+pydantic==2.6.1
+pydantic-settings==2.1.0
+python-dotenv==1.0.1
+
+# База данных
+sqlalchemy==2.0.25
+alembic==1.13.1
+aiosqlite==0.19.0
+
+# HTTP клиент
+aiohttp==3.9.3
+httpx==0.26.0
+
+# Работа с данными
+pandas==2.2.0
+numpy==1.26.3
+
+# Биржи
+python-binance==1.0.19
+ccxt==4.2.15
+
+# Утилиты
+websockets==12.0
+rclone-python==0.1.0
+python-dateutil==2.8.2
+
+# Тестирование
+pytest==8.0.0
+pytest-asyncio==0.23.5
+pytest-cov==4.1.0
+
+# Документация
+mkdocs==1.5.3
+mkdocs-material==9.5.3 
